@@ -192,17 +192,70 @@ export async function getTopPools(limit: number = 50): Promise<any[]> {
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
 
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
-  const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
-  const data = await safeJson(res);
-  const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
-  // Also build a map from include[].id -> token info
-  const tokenMap = new Map<string, any>();
-  if (data && Array.isArray(data.included)) {
-    for (const t of data.included) {
-      tokenMap.set(t.id, t);
+  // Try GeckoTerminal first
+  let list: any[] = [];
+  try {
+    const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
+    const res = await politeFetch(url, { headers: { Accept: "application/json" } });
+    if (res && res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data?.data)) list = data.data;
+    } else {
+      console.warn(`[getTopPools] GeckoTerminal returned ${res?.status || "no response"}, falling back to DexScreener`);
+    }
+  } catch (e) {
+    console.warn(`[getTopPools] GeckoTerminal failed: ${e}, falling back to DexScreener`);
+  }
+
+  // Fallback: DexScreener (different IP rate limit)
+  if (list.length === 0) {
+    try {
+      const url = `https://api.dexscreener.com/latest/dex/search?q=solana`;
+      const res = await politeFetch(url);
+      if (res && res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.pairs)) {
+          // Normalize DexScreener pair format to GeckoTerminal-like
+          list = data.pairs.slice(0, limit).map((p: any) => ({
+            id: p.pairAddress,
+            type: "pool",
+            attributes: {
+              address: p.pairAddress,
+              name: `${p.baseToken?.name || "?"} / ${p.quoteToken?.name || "?"}`,
+              base_token: p.baseToken ? {
+                address: p.baseToken.address,
+                name: p.baseToken.name,
+                symbol: p.baseToken.symbol,
+                image_url: p.info?.imageUrl,
+              } : null,
+              base_token_price_usd: p.priceUsd,
+              base_token_price_native_currency: p.priceNative,
+              volume_usd: { h24: p.volume?.h24, h6: p.volume?.h6, h1: p.volume?.h1, m5: p.volume?.m5 },
+              price_change_percentage: { h24: p.priceChange?.h24, h6: p.priceChange?.h6, h1: p.priceChange?.h1, m5: p.priceChange?.m5 },
+              reserve_in_usd: p.liquidity?.usd,
+              market_cap_usd: p.marketCap,
+              fdv_usd: p.fdv,
+              dex_id: p.dexId,
+              pool_created_at: p.pairCreatedAt ? new Date(p.pairCreatedAt).toISOString() : null,
+              transactions: p.txns,
+            },
+            relationships: {
+              base_token: { data: { id: `solana_${p.baseToken?.address}`, type: "token" } },
+            },
+          }));
+        }
+      }
+    } catch (e) {
+      console.warn(`[getTopPools] DexScreener also failed:`, e);
     }
   }
+
+  if (list.length === 0) return [];
+
+  // Build a map from include[].id -> token info
+  const tokenMap = new Map<string, any>();
+  // (For GeckoTerminal includes)
+  // For DexScreener fallback, base_token is already on attributes
   // Attach base_token to each pool using the relationships field
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
