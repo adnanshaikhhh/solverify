@@ -192,11 +192,27 @@ export async function getTopPools(limit: number = 50): Promise<any[]> {
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
 
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc`;
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
-  const sliced = list.slice(0, limit);
+  // Also build a map from include[].id -> token info
+  const tokenMap = new Map<string, any>();
+  if (data && Array.isArray(data.included)) {
+    for (const t of data.included) {
+      tokenMap.set(t.id, t);
+    }
+  }
+  // Attach base_token to each pool
+  const enriched = list.map((p: any) => {
+    const a = p.attributes || {};
+    const ref = a.base_token_id || a.base_token?.id;
+    if (ref && tokenMap.has(ref) && !a.base_token) {
+      a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    }
+    return p;
+  });
+  const sliced = enriched.slice(0, limit);
   setCached(cacheKey, sliced, 60_000); // 60s cache
   return sliced;
 }
@@ -208,11 +224,21 @@ export async function getTrendingPools(limit: number = 15): Promise<any[]> {
   const cacheKey = `trending:v1:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h1_volume_usd_desc`;
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h1_volume_usd_desc&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
-  const sliced = list.slice(0, limit);
+  const tokenMap = new Map<string, any>();
+  if (data && Array.isArray(data.included)) {
+    for (const t of data.included) tokenMap.set(t.id, t);
+  }
+  const enriched = list.map((p: any) => {
+    const a = p.attributes || {};
+    const ref = a.base_token_id || a.base_token?.id;
+    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    return p;
+  });
+  const sliced = enriched.slice(0, limit);
   setCached(cacheKey, sliced, 60_000);
   return sliced;
 }
@@ -224,13 +250,23 @@ export async function getNewPools(limit: number = 15): Promise<any[]> {
   const cacheKey = `newpools:v1:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=pool_created_at_desc`;
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=pool_created_at_desc&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
+  const tokenMap = new Map<string, any>();
+  if (data && Array.isArray(data.included)) {
+    for (const t of data.included) tokenMap.set(t.id, t);
+  }
+  const enriched = list.map((p: any) => {
+    const a = p.attributes || {};
+    const ref = a.base_token_id || a.base_token?.id;
+    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    return p;
+  });
   // Filter: created in last 7 days AND volume > 10k
   const cutoff = Date.now() / 1000 - 7 * 24 * 60 * 60;
-  const filtered = list.filter((p: any) => {
+  const filtered = enriched.filter((p: any) => {
     const a = p.attributes || {};
     const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() / 1000 : 0;
     const vol24 = Number(a.volume_usd?.h24 || 0);
@@ -250,11 +286,21 @@ export async function searchTokens(query: string, limit: number = 10): Promise<a
   const cacheKey = `search:${q.toLowerCase()}:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
-  const url = `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(q)}&network=solana&page=1`;
+  const url = `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(q)}&network=solana&page=1&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
-  const sliced = list.slice(0, limit);
+  const tokenMap = new Map<string, any>();
+  if (data && Array.isArray(data.included)) {
+    for (const t of data.included) tokenMap.set(t.id, t);
+  }
+  const enriched = list.map((p: any) => {
+    const a = p.attributes || {};
+    const ref = a.base_token_id || a.base_token?.id;
+    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    return p;
+  });
+  const sliced = enriched.slice(0, limit);
   setCached(cacheKey, sliced, 60_000);
   return sliced;
 }
@@ -296,6 +342,14 @@ export async function dexScreenerSearch(query: string): Promise<any[]> {
 // =============================================================================
 export function normalizePool(pool: any): FeedToken {
   const a = pool.attributes || {};
+  // GeckoTerminal pool id format: "solana_{poolAddress}"
+  // base_token may not be included by default — fall back to splitting the pool id
+  let baseAddress = a.base_token?.address || "";
+  if (!baseAddress && a.address) {
+    // pool address IS the pool, not the token. We need the include param.
+    // As a last-resort fallback, leave address empty.
+  }
+
   const base = a.base_token || {};
   const quote = a.quote_token || {};
   const txns = a.transactions || {};
@@ -310,9 +364,9 @@ export function normalizePool(pool: any): FeedToken {
     : null;
 
   return {
-    address: base.address || a.address?.split("_")[1] || "",
-    name: base.name || null,
-    symbol: base.symbol || null,
+    address: baseAddress,
+    name: base.name || a.name?.split(" / ")[0] || null,
+    symbol: base.symbol || a.name?.split(" / ")[0] || null,
     logo_url: base.image_url || null,
     price_usd: price,
     price_native: a.base_token_price_native_currency ? Number(a.base_token_price_native_currency) : null,
