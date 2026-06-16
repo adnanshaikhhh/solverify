@@ -188,7 +188,7 @@ export async function getTokenInfo(address: string): Promise<{
 // We use GeckoTerminal's "trending pools" endpoint, sorted by 24h volume
 // =============================================================================
 export async function getTopPools(limit: number = 50): Promise<any[]> {
-  const cacheKey = `toppools:v1:${limit}`;
+  const cacheKey = `toppools:v2:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
 
