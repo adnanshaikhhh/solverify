@@ -1,10 +1,12 @@
-import type { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = { title: "Claim Token" };
-
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 import { ClaimWizard } from "@/components/verification/ClaimWizard";
 
-export default function ClaimPage() {
+function ClaimPageInner() {
+  const sp = useSearchParams();
+  const address = sp.get("address") || "";
   return (
     <div className="mx-auto max-w-3xl py-8">
       <div className="mb-8 text-center">
@@ -13,7 +15,15 @@ export default function ClaimPage() {
           Verify ownership with your wallet signature. Free Bronze tier, or upgrade to Silver / Gold.
         </p>
       </div>
-      <ClaimWizard />
+      <ClaimWizard initialAddress={address} />
     </div>
+  );
+}
+
+export default function ClaimPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-text-muted">Loading...</div>}>
+      <ClaimPageInner />
+    </Suspense>
   );
 }

@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/check-payments",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/update-market-data",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/scan-links",
+      "schedule": "0 */12 * * *"
+    },
+    {
+      "path": "/api/cron/expire-claims",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}

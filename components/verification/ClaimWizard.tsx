@@ -203,10 +203,10 @@ function Step5({ address }: { address: string }) {
   );
 }
 
-export function ClaimWizard() {
+export function ClaimWizard(props: { initialAddress?: string } = {}) {
   const [step, setStep] = useState(1);
-  const [address, setAddress] = useState("");
-  const [tokenInfo, setTokenInfo] = useState<any>({ address: "" });
+  const [address, setAddress] = useState(props.initialAddress || "");
+  const [tokenInfo, setTokenInfo] = useState<any>({ address: props.initialAddress || "" });
   const [claimMethod, setClaimMethod] = useState("creator_wallet");
 
   const next = () => setStep((s) => Math.min(5, s + 1));

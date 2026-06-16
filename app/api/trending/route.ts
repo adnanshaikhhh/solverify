@@ -1,0 +1,110 @@
+// =============================================================================
+// SolVerify — app/api/trending/route.ts
+// 3 lists: trending (1h volume), new listings (<7d, >$10k vol), verified (DB)
+// =============================================================================
+
+import { NextRequest } from "next/server";
+import { getSupabaseService } from "@/lib/supabase-server";
+import {
+  getTrendingPools,
+  getNewPools,
+  normalizePool,
+  mergeSolverifyData,
+  type TrendingResponse,
+} from "@/lib/feed";
+import { handleError } from "@/lib/utils";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+let cache: { value: TrendingResponse; expires: number } | null = null;
+const TTL = 60_000;
+
+export async function GET(req: NextRequest) {
+  try {
+    if (cache && cache.expires > Date.now()) {
+      return Response.json(cache.value);
+    }
+
+    const db = getSupabaseService();
+    const allAddrs = new Set<string>();
+
+    // 1) Trending (1h volume)
+    const trendingPools = await getTrendingPools(15);
+    const trending = trendingPools.map(normalizePool);
+    trending.forEach((t) => allAddrs.add(t.address));
+
+    // 2) New listings
+    const newPools = await getNewPools(15);
+    const newListings = newPools.map(normalizePool);
+    newListings.forEach((t) => allAddrs.add(t.address));
+
+    // 3) Verified from DB
+    const { data: verifiedRows } = await db
+      .from("tokens")
+      .select("contract_address, name, symbol, logo_url, claim_status, verification_tier, trust_score")
+      .in("verification_tier", ["gold", "silver", "bronze"])
+      .order("trust_score", { ascending: false })
+      .limit(15);
+    let verified = (verifiedRows || []).map((r: any) => ({
+      address: r.contract_address,
+      name: r.name,
+      symbol: r.symbol,
+      logo_url: r.logo_url,
+      price_usd: null,
+      price_native: null,
+      change_24h: null,
+      change_1h: null,
+      change_6h: null,
+      volume_24h: null,
+      liquidity_usd: null,
+      market_cap: null,
+      fdv: null,
+      pair_address: null,
+      dex_id: null,
+      pair_created_at: null,
+      sparkline_7d: null,
+      solverify: {
+        in_db: true,
+        claim_status: r.claim_status,
+        verification_tier: r.verification_tier,
+        trust_score: r.trust_score,
+        grade: r.trust_score != null
+          ? (r.trust_score >= 90 ? "SAFU" :
+             r.trust_score >= 75 ? "Trusted" :
+             r.trust_score >= 55 ? "Caution" :
+             r.trust_score >= 35 ? "Risky" : "Danger")
+          : null,
+      },
+    }));
+    verified.forEach((t: any) => allAddrs.add(t.address));
+
+    // Merge SolVerify DB data for trending + new (so verified ones show badges)
+    const { data: solverifyRows } = await db
+      .from("tokens")
+      .select("contract_address, name, symbol, logo_url, claim_status, verification_tier, trust_score")
+      .in("contract_address", Array.from(allAddrs));
+    if (solverifyRows && solverifyRows.length > 0) {
+      const merged = mergeSolverifyData([...trending, ...newListings], solverifyRows);
+      const tByAddr = new Map(merged.map((t) => [t.address, t]));
+      // Re-splice back in original order
+      for (let i = 0; i < trending.length; i++) {
+        trending[i] = tByAddr.get(trending[i].address) || trending[i];
+      }
+      for (let i = 0; i < newListings.length; i++) {
+        newListings[i] = tByAddr.get(newListings[i].address) || newListings[i];
+      }
+    }
+
+    const response: TrendingResponse = {
+      trending,
+      new_listings: newListings,
+      verified,
+      fetched_at: Date.now(),
+    };
+    cache = { value: response, expires: Date.now() + TTL };
+    return Response.json(response);
+  } catch (e) {
+    return handleError(e);
+  }
+}
