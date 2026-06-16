@@ -203,12 +203,12 @@ export async function getTopPools(limit: number = 50): Promise<any[]> {
       tokenMap.set(t.id, t);
     }
   }
-  // Attach base_token to each pool
+  // Attach base_token to each pool using the relationships field
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
-    const ref = a.base_token_id || a.base_token?.id;
-    if (ref && tokenMap.has(ref) && !a.base_token) {
-      a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    const refId = p.relationships?.base_token?.data?.id;
+    if (refId && tokenMap.has(refId) && !a.base_token) {
+      a.base_token = tokenMap.get(refId).attributes || tokenMap.get(refId);
     }
     return p;
   });
@@ -234,8 +234,8 @@ export async function getTrendingPools(limit: number = 15): Promise<any[]> {
   }
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
-    const ref = a.base_token_id || a.base_token?.id;
-    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    const refId = p.relationships?.base_token?.data?.id;
+    if (refId && tokenMap.has(refId) && !a.base_token) a.base_token = tokenMap.get(refId).attributes || tokenMap.get(refId);
     return p;
   });
   const sliced = enriched.slice(0, limit);
@@ -260,8 +260,8 @@ export async function getNewPools(limit: number = 15): Promise<any[]> {
   }
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
-    const ref = a.base_token_id || a.base_token?.id;
-    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    const refId = p.relationships?.base_token?.data?.id;
+    if (refId && tokenMap.has(refId) && !a.base_token) a.base_token = tokenMap.get(refId).attributes || tokenMap.get(refId);
     return p;
   });
   // Filter: created in last 7 days AND volume > 10k
@@ -296,8 +296,8 @@ export async function searchTokens(query: string, limit: number = 10): Promise<a
   }
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
-    const ref = a.base_token_id || a.base_token?.id;
-    if (ref && tokenMap.has(ref) && !a.base_token) a.base_token = tokenMap.get(ref).attributes || tokenMap.get(ref);
+    const refId = p.relationships?.base_token?.data?.id;
+    if (refId && tokenMap.has(refId) && !a.base_token) a.base_token = tokenMap.get(refId).attributes || tokenMap.get(refId);
     return p;
   });
   const sliced = enriched.slice(0, limit);
