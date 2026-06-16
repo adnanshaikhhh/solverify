@@ -38,11 +38,14 @@ export async function GET(req: NextRequest) {
 
     // 1) Top pools — retry once on empty
     let pools = await getTopPools(limit);
+    console.log("[feed] getTopPools returned", pools.length, "pools");
     if (pools.length === 0) {
       await new Promise((r) => setTimeout(r, 500));
       pools = await getTopPools(limit);
+      console.log("[feed] retry getTopPools returned", pools.length, "pools");
     }
     let tokens: FeedToken[] = pools.map(normalizePool);
+    console.log("[feed] normalized tokens:", tokens.length, "first address:", tokens[0]?.address);
 
     // 2) Merge SolVerify DB data (batch single query)
     const db = getSupabaseService();
@@ -83,8 +86,6 @@ export async function GET(req: NextRequest) {
     }
     return Response.json(response);
   } catch (e) {
-    // If we have stale cache, return it instead of 500
-    if (feedCache) return Response.json(feedCache.value);
     return handleError(e);
   }
 }
