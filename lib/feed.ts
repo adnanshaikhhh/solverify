@@ -224,7 +224,9 @@ export async function getTrendingPools(limit: number = 15): Promise<any[]> {
   const cacheKey = `trending:v1:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h1_volume_usd_desc&include=base_token`;
+  // GeckoTerminal only supports these sorts; for "trending 1h" we use h24 volume
+  // sorted then re-sorted client-side by h1 volume
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
@@ -238,6 +240,12 @@ export async function getTrendingPools(limit: number = 15): Promise<any[]> {
     if (refId && tokenMap.has(refId) && !a.base_token) a.base_token = tokenMap.get(refId).attributes || tokenMap.get(refId);
     return p;
   });
+  // Re-sort by h1 volume USD (the actual "trending now" metric)
+  enriched.sort((a: any, b: any) => {
+    const av = Number(a.attributes?.volume_usd?.h1 || 0);
+    const bv = Number(b.attributes?.volume_usd?.h1 || 0);
+    return bv - av;
+  });
   const sliced = enriched.slice(0, limit);
   setCached(cacheKey, sliced, 60_000);
   return sliced;
@@ -250,7 +258,8 @@ export async function getNewPools(limit: number = 15): Promise<any[]> {
   const cacheKey = `newpools:v1:${limit}`;
   const hit = getCached<any[]>(cacheKey);
   if (hit) return hit;
-  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=pool_created_at_desc&include=base_token`;
+  // GeckoTerminal doesn't support pool_created_at sort; use h24 volume then filter
+  const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
   const res = await politeFetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
   const data = await safeJson(res);
   const list: any[] = (data && Array.isArray(data.data)) ? data.data : [];
@@ -271,6 +280,12 @@ export async function getNewPools(limit: number = 15): Promise<any[]> {
     const created = a.pool_created_at ? new Date(a.pool_created_at).getTime() / 1000 : 0;
     const vol24 = Number(a.volume_usd?.h24 || 0);
     return created > cutoff && vol24 > 10000;
+  });
+  // Sort newest first
+  filtered.sort((a: any, b: any) => {
+    const ac = new Date(a.attributes?.pool_created_at || 0).getTime();
+    const bc = new Date(b.attributes?.pool_created_at || 0).getTime();
+    return bc - ac;
   });
   const sliced = filtered.slice(0, limit);
   setCached(cacheKey, sliced, 60_000);
