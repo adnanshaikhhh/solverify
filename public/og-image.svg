@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#07070C"/>
+      <stop offset="1" stop-color="#1A1A2A"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C3AED"/>
+      <stop offset="0.5" stop-color="#3B82F6"/>
+      <stop offset="1" stop-color="#10B981"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g transform="translate(180, 200)">
+    <path d="M64 8 L112 28 V64 C112 92 88 112 64 120 C40 112 16 92 16 64 V28 Z" fill="url(#brand)" opacity="0.18"/>
+    <path d="M64 8 L112 28 V64 C112 92 88 112 64 120 C40 112 16 92 16 64 V28 Z" stroke="url(#brand)" stroke-width="5" stroke-linejoin="round" fill="none"/>
+    <path d="M44 64 L58 78 L86 48" stroke="url(#brand)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+  <text x="180" y="430" font-family="Inter, system-ui, sans-serif" font-size="100" font-weight="800" fill="white">SolVerify</text>
+  <text x="180" y="500" font-family="Inter, system-ui, sans-serif" font-size="36" font-weight="400" fill="#94A3B8">The Trust Layer for Solana Tokens</text>
+  <text x="180" y="560" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="500" fill="#7C3AED">Verified ownership. Secure metadata. $60 vs $299.</text>
+</svg>
