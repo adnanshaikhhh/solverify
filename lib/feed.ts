@@ -194,12 +194,14 @@ export async function getTopPools(limit: number = 50): Promise<any[]> {
 
   // Try GeckoTerminal first
   let list: any[] = [];
+  let geckoIncluded: any[] = [];
   try {
     const url = `https://api.geckoterminal.com/api/v2/networks/solana/pools?page=1&sort=h24_volume_usd_desc&include=base_token`;
     const res = await politeFetch(url, { headers: { Accept: "application/json" } });
     if (res && res.ok) {
       const data = await res.json();
       if (Array.isArray(data?.data)) list = data.data;
+      if (Array.isArray(data?.included)) geckoIncluded = data.included;
     } else {
       console.warn(`[getTopPools] GeckoTerminal returned ${res?.status || "no response"}, falling back to DexScreener`);
     }
@@ -254,8 +256,9 @@ export async function getTopPools(limit: number = 50): Promise<any[]> {
 
   // Build a map from include[].id -> token info
   const tokenMap = new Map<string, any>();
-  // (For GeckoTerminal includes)
-  // For DexScreener fallback, base_token is already on attributes
+  for (const t of geckoIncluded) {
+    tokenMap.set(t.id, t);
+  }
   // Attach base_token to each pool using the relationships field
   const enriched = list.map((p: any) => {
     const a = p.attributes || {};
