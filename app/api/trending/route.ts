@@ -8,6 +8,7 @@ import { getSupabaseService } from "@/lib/supabase-server";
 import {
   getTrendingPools,
   getNewPools,
+  getTokenPools,
   normalizePool,
   mergeSolverifyData,
   type TrendingResponse,
@@ -22,7 +23,7 @@ const TTL = 60_000;
 
 export async function GET(req: NextRequest) {
   try {
-    if (cache && cache.expires > Date.now()) {
+    if (cache && cache.expires > Date.now() && cache.value.verified.length > 0) {
       return Response.json(cache.value);
     }
 
@@ -39,31 +40,46 @@ export async function GET(req: NextRequest) {
     const newListings = newPools.map(normalizePool);
     newListings.forEach((t) => allAddrs.add(t.address));
 
-    // 3) Verified from DB
+    // 3) Verified from DB — also enrich with live data
     const { data: verifiedRows } = await db
       .from("tokens")
       .select("contract_address, name, symbol, logo_url, claim_status, verification_tier, trust_score")
       .in("verification_tier", ["gold", "silver", "bronze"])
       .order("trust_score", { ascending: false })
       .limit(15);
-    let verified = (verifiedRows || []).map((r: any) => ({
+
+    // Best-effort live data for verified tokens
+    const verifiedEnriched = await Promise.all(
+      ((verifiedRows as any[]) || []).map(async (r) => {
+        try {
+          const pools = await getTokenPools(r.contract_address);
+          if (!pools || pools.length === 0) return { r, live: null };
+          const sorted = [...pools].sort((a, b) => Number(b.attributes?.reserve_in_usd || 0) - Number(a.attributes?.reserve_in_usd || 0));
+          return { r, live: normalizePool(sorted[0]) };
+        } catch {
+          return { r, live: null };
+        }
+      })
+    );
+
+    const verified = verifiedEnriched.map(({ r, live }) => ({
       address: r.contract_address,
       name: r.name,
       symbol: r.symbol,
       logo_url: r.logo_url,
-      price_usd: null,
-      price_native: null,
-      change_24h: null,
-      change_1h: null,
-      change_6h: null,
-      volume_24h: null,
-      liquidity_usd: null,
-      market_cap: null,
-      fdv: null,
-      pair_address: null,
-      dex_id: null,
-      pair_created_at: null,
-      sparkline_7d: null,
+      price_usd: live?.price_usd ?? null,
+      price_native: live?.price_native ?? null,
+      change_24h: live?.change_24h ?? null,
+      change_1h: live?.change_1h ?? null,
+      change_6h: live?.change_6h ?? null,
+      volume_24h: live?.volume_24h ?? null,
+      liquidity_usd: live?.liquidity_usd ?? null,
+      market_cap: live?.market_cap ?? null,
+      fdv: live?.fdv ?? null,
+      pair_address: live?.pair_address ?? null,
+      dex_id: live?.dex_id ?? null,
+      pair_created_at: live?.pair_created_at ?? null,
+      sparkline_7d: live?.sparkline_7d ?? null,
       solverify: {
         in_db: true,
         claim_status: r.claim_status,
@@ -77,9 +93,8 @@ export async function GET(req: NextRequest) {
           : null,
       },
     }));
-    verified.forEach((t: any) => allAddrs.add(t.address));
 
-    // Merge SolVerify DB data for trending + new (so verified ones show badges)
+    // Merge DB into trending + new for verified badges
     const { data: solverifyRows } = await db
       .from("tokens")
       .select("contract_address, name, symbol, logo_url, claim_status, verification_tier, trust_score")
@@ -87,7 +102,6 @@ export async function GET(req: NextRequest) {
     if (solverifyRows && solverifyRows.length > 0) {
       const merged = mergeSolverifyData([...trending, ...newListings], solverifyRows);
       const tByAddr = new Map(merged.map((t) => [t.address, t]));
-      // Re-splice back in original order
       for (let i = 0; i < trending.length; i++) {
         trending[i] = tByAddr.get(trending[i].address) || trending[i];
       }
@@ -102,9 +116,13 @@ export async function GET(req: NextRequest) {
       verified,
       fetched_at: Date.now(),
     };
-    cache = { value: response, expires: Date.now() + TTL };
+    // Only cache if verified has data (avoids caching empty results)
+    if (verified.length > 0) {
+      cache = { value: response, expires: Date.now() + TTL };
+    }
     return Response.json(response);
   } catch (e) {
+    if (cache) return Response.json(cache.value);
     return handleError(e);
   }
 }

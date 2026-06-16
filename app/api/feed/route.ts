@@ -31,12 +31,17 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const limit = Math.min(Number(searchParams.get("limit") || 50), 100);
 
-    if (feedCache && feedCache.expires > Date.now() && limit === 50) {
+    // Only serve cache if it's a healthy (non-empty) result
+    if (feedCache && feedCache.expires > Date.now() && limit === 50 && feedCache.value.data.length > 0) {
       return Response.json(feedCache.value);
     }
 
-    // 1) Top pools
-    const pools = await getTopPools(limit);
+    // 1) Top pools — retry once on empty
+    let pools = await getTopPools(limit);
+    if (pools.length === 0) {
+      await new Promise((r) => setTimeout(r, 500));
+      pools = await getTopPools(limit);
+    }
     let tokens: FeedToken[] = pools.map(normalizePool);
 
     // 2) Merge SolVerify DB data (batch single query)
@@ -53,11 +58,18 @@ export async function GET(req: NextRequest) {
     tokens = mergeSolverifyData(tokens, dbRows);
 
     // 3) Rug risk (top 25 only to keep API fast)
-    const top25 = tokens.slice(0, 25).map((t) => t.address);
-    const riskMap = await scanRiskBatch(top25);
-    for (const t of tokens.slice(0, 25)) {
-      const r = riskMap.get(t.address);
-      if (r) (t as any).risk = r;
+    if (tokens.length > 0) {
+      const top25 = tokens.slice(0, 25).map((t) => t.address);
+      try {
+        const riskMap = await scanRiskBatch(top25);
+        for (const t of tokens.slice(0, 25)) {
+          const r = riskMap.get(t.address);
+          if (r) (t as any).risk = r;
+        }
+      } catch (e) {
+        // Don't fail the whole feed on risk scan error
+        console.error("[feed] risk scan failed", e);
+      }
     }
 
     const response: FeedResponse = {
@@ -65,9 +77,14 @@ export async function GET(req: NextRequest) {
       fetched_at: Date.now(),
       source: "geckoterminal",
     };
-    if (limit === 50) feedCache = { value: response, expires: Date.now() + FEED_TTL_MS };
+    // Cache only healthy results
+    if (limit === 50 && tokens.length > 0) {
+      feedCache = { value: response, expires: Date.now() + FEED_TTL_MS };
+    }
     return Response.json(response);
   } catch (e) {
+    // If we have stale cache, return it instead of 500
+    if (feedCache) return Response.json(feedCache.value);
     return handleError(e);
   }
 }
